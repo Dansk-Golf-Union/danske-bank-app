@@ -6,7 +6,7 @@ def read_file(uploaded_file):
     if uploaded_file.name.endswith(".csv"):
         return pd.read_csv(uploaded_file, sep=None, engine='python')
     elif uploaded_file.name.endswith(".xlsx"):
-        return pd.read_excel(uploaded_file)
+        return pd.read_excel(uploaded_file, engine="openpyxl")
     else:
         st.error("Kun CSV eller Excel (.xlsx) filer understøttes.")
         return None
@@ -33,7 +33,7 @@ def standardize_dataframe(df, source_name):
             "Angiv dit DGU-nr. / union-id": df.get("Angiv dit DGU-nr."),
             "Er du kunde hos Danske Bank i dag?": df.get("Er du kunde hos Danske Bank i dag?"),
             "Ja, Danske Bank må kontakte mig": df.get("Ja, Danske Bank må kontakte mig"),
-            "newsletter": None
+            "newsletter": None,
         })
 
     elif source_name == "BBTilmeld":
@@ -54,7 +54,7 @@ def standardize_dataframe(df, source_name):
             "Angiv dit DGU-nr. / union-id": df.get("union_id"),
             "Er du kunde hos Danske Bank i dag?": df.get("danske_bank_customer"),
             "Ja, Danske Bank må kontakte mig": df.get("danske_bank_can_call"),
-            "newsletter": df.get("newsletter")
+            "newsletter": df.get("newsletter"),
         })
 
     elif source_name == "Playable":
@@ -74,40 +74,44 @@ def standardize_dataframe(df, source_name):
             "Telefonnummer": df.get("Telefon"),
             "Angiv dit DGU-nr. / union-id": df.get("Angiv dit DGU-nr."),
             "Er du kunde hos Danske Bank i dag?": df.get("Er du kunde hos Danske Bank i dag?"),
-            "Ja, Danske Bank må kontakte mig": df.iloc[:, 11] if df.shape[1] > 11 else None,
-            "newsletter": None
+            "Ja, Danske Bank må kontakte mig": df.get("Ja, Danske Bank må kontakte mig"),
+            "newsletter": None,
         })
-    else:
-        return None
 
+    return df
+
+st.set_page_config(page_title="Danske Bank - Samlet Data Generator")
 st.title("Danske Bank - Samlet Data Generator")
-
-st.markdown("Upload de tre filer nedenfor (CallMe, BBTilmeld, Playable)")
+st.write("Upload de tre filer nedenfor (CallMe, BBTilmeld, Playable)")
 
 callme_file = st.file_uploader("Upload CallMe fil", type=["csv", "xlsx"])
-bb_file = st.file_uploader("Upload BBTilmeld fil", type=["csv", "xlsx"])
+bbtilmeld_file = st.file_uploader("Upload BBTilmeld fil", type=["csv", "xlsx"])
 playable_file = st.file_uploader("Upload Playable fil", type=["csv", "xlsx"])
 
 if st.button("Generér samlet fil"):
-    if not all([callme_file, bb_file, playable_file]):
-        st.warning("Alle tre filer skal uploades.")
+    if not any([callme_file, bbtilmeld_file, playable_file]):
+        st.warning("Upload mindst én fil for at fortsætte.")
     else:
-        callme_df = read_file(callme_file)
-        bb_df = read_file(bb_file)
-        playable_df = read_file(playable_file)
+        dfs = []
 
-        callme_std = standardize_dataframe(callme_df, "CallMe")
-        bb_std = standardize_dataframe(bb_df, "BBTilmeld")
-        playable_std = standardize_dataframe(playable_df, "Playable")
+        if callme_file:
+            df = read_file(callme_file)
+            if df is not None:
+                dfs.append(standardize_dataframe(df, "CallMe"))
 
-        combined = pd.concat([callme_std, bb_std, playable_std], ignore_index=True)
+        if bbtilmeld_file:
+            df = read_file(bbtilmeld_file)
+            if df is not None:
+                dfs.append(standardize_dataframe(df, "BBTilmeld"))
 
-        output = io.BytesIO()
-        combined.to_excel(output, index=False, engine='openpyxl')
-        st.success("Filen er genereret!")
-        st.download_button(
-            label="Download samlet fil (.xlsx)",
-            data=output.getvalue(),
-            file_name="Danske_Bank_samlet.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        if playable_file:
+            df = read_file(playable_file)
+            if df is not None:
+                dfs.append(standardize_dataframe(df, "Playable"))
+
+        if dfs:
+            final_df = pd.concat(dfs, ignore_index=True)
+            csv = final_df.to_csv(index=False).encode("utf-8")
+            st.download_button("Download samlet CSV", csv, "danske_bank_samlet.csv", "text/csv")
+        else:
+            st.error("Ingen gyldige data at samle.")
